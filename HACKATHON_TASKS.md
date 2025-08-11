@@ -9,13 +9,13 @@
 
 #### **Task 1.1: Development Environment Setup** ⚙️
 **Duration: 1 day (Aug 11)**
-- [ ] Install Aptos CLI and development tools
-- [ ] Set up Move development environment
-- [ ] Configure TypeScript/React development stack
-- [ ] Set up Python environment for AI/ML components
-- [ ] Initialize Git repository with proper structure
-- [ ] Set up CI/CD pipeline basics
-- [ ] Configure testing frameworks (Move unit tests, Jest/Mocha)
+- [x] Install Aptos CLI and development tools
+- [x] Set up Move development environment
+- [x] Configure TypeScript/React development stack
+- [x] Set up Python environment for AI/ML components
+- [x] Initialize Git repository with proper structure
+- [x] Set up CI/CD pipeline basics
+- [x] Configure testing frameworks (Move unit tests, Jest/Mocha)
 
 **Deliverables:**
 - Working development environment

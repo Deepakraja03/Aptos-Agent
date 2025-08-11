@@ -1,2 +1,31 @@
+# Aptos/Move
 .aptos/
 build/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS/Editor
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test/coverage
+coverage/
+frontend/coverage/
+
+# Misc
+.env
+.env.*
