@@ -4,8 +4,10 @@ version = "1.0.0"
 authors = []
 
 [addresses]
+deployer_addr = "0xde1f3149e374000f02a24bfd48035e4f63d284aaa8baf79a41fe910841a76cc6"
 
 [dev-addresses]
+
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"
