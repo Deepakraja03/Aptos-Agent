@@ -3,9 +3,9 @@
 numpy>=1.24.0
 pandas>=1.5.0
 scikit-learn>=1.3.0
-tensorflow>=2.13.0
-torch>=2.0.0
-torchvision>=0.15.0
+# tensorflow>=2.13.0  # Not used in current implementation
+# torch>=2.0.0        # Not used in current implementation
+# torchvision>=0.15.0 # Not used in current implementation
 
 # Data Analysis & Visualization
 matplotlib>=3.7.0

@@ -43,6 +43,13 @@ The AptosAgents AI Engine is a sophisticated, production-ready framework for cre
 - **Performance Monitoring**: Continuous model performance evaluation
 - **Data Collection**: Automated historical data collection and preprocessing
 
+### 🛡️ **Advanced Risk Management**
+- **Dynamic Position Sizing**: Volatility and drawdown-based position limits
+- **Stop-Loss & Take-Profit**: Automatic calculation and execution
+- **Position Tracking**: Real-time PnL monitoring and position management
+- **Drawdown Protection**: Maximum drawdown limits with automatic trade rejection
+- **Multi-Position Management**: Prevents overexposure and manages position limits
+
 ## 🏗️ Architecture
 
 ```
