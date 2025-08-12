@@ -111,12 +111,55 @@ module deployer_addr::AgentFactory {
         next_id: u64,
     }
 
-    // Global statistics (commented out for now - will be implemented in production)
-    // struct GlobalStats has key {
-    //     total_agents_created: u64,
-    //     total_value_locked: u64,
-    //     total_trades_executed: u64,
-    // }
+    // Global agent registry - similar to CoffeeList in Coffee module
+    struct GlobalAgentRegistry has key {
+        agents: table::Table<u64, Agent>,
+        agent_counter: u64,
+    }
+
+    // Global statistics for analytics
+    struct GlobalStats has key {
+        total_agents_created: u64,
+        total_value_locked: u64,
+        total_trades_executed: u64,
+        total_active_agents: u64,
+    }
+
+    // Public initialization function for the module
+    public entry fun initialize(account: &signer) {
+        let deployer_addr = @deployer_addr;
+        
+        assert!(signer::address_of(account) == deployer_addr, E_RESOURCE_NOT_EXISTS);
+
+        // Initialize the deployer's OwnerAgents resource if it doesn't exist
+        if (!exists<OwnerAgents>(deployer_addr)) {
+            let owner_agents = OwnerAgents {
+                agents: table::new<u64, Agent>(),
+                next_id: 1
+            };
+            move_to(account, owner_agents);
+        };
+
+        // Initialize global agent registry if it doesn't exist
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = GlobalAgentRegistry {
+                agents: table::new<u64, Agent>(),
+                agent_counter: 0
+            };
+            move_to(account, global_registry);
+        };
+
+        // Initialize global stats if it doesn't exist
+        if (!exists<GlobalStats>(deployer_addr)) {
+            let global_stats = GlobalStats {
+                total_agents_created: 0,
+                total_value_locked: 0,
+                total_trades_executed: 0,
+                total_active_agents: 0
+            };
+            move_to(account, global_stats);
+        }
+    }
 
     // Ensure the owner resource exists; if not, create it
     fun ensure_owner_storage(account: &signer) {
@@ -171,7 +214,7 @@ module deployer_addr::AgentFactory {
         true
     }
 
-    // Create a new agent (entry; no return). Emits event; stores under caller's resource
+    // Create a new agent (entry; no return). Emits event; stores under caller's resource and global registry
     public entry fun create_agent(
         account: &signer,
         strategy_code: vector<u8>,
@@ -186,7 +229,7 @@ module deployer_addr::AgentFactory {
         can_stake: bool,
         max_amount_per_tx: u64,
         allowed_protocols: vector<address>,
-    ) acquires OwnerAgents {
+    ) acquires OwnerAgents, GlobalAgentRegistry, GlobalStats {
         // Validate parameters
         assert!(validate_agent_params(risk_level, max_slippage, stop_loss, target_profit, execution_frequency, max_gas_per_tx), E_INVALID_PARAMETERS);
         
@@ -233,7 +276,27 @@ module deployer_addr::AgentFactory {
             created_at: 0, // Will be set in production
         };
         
+        // Add to owner's storage
         table::add(&mut store.agents, id, agent);
+        
+        // Add to global registry - similar to Coffee module pattern
+        let deployer_addr = @deployer_addr;
+        if (exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = borrow_global_mut<GlobalAgentRegistry>(deployer_addr);
+            let global_id = global_registry.agent_counter;
+            // Use global_id as key but store agent with original owner-specific id
+            let global_agent = agent;
+            global_agent.id = global_id; // Set global unique id
+            table::add(&mut global_registry.agents, global_id, global_agent);
+            global_registry.agent_counter = global_id + 1;
+        };
+        
+        // Update global stats
+        if (exists<GlobalStats>(deployer_addr)) {
+            let global_stats = borrow_global_mut<GlobalStats>(deployer_addr);
+            global_stats.total_agents_created = global_stats.total_agents_created + 1;
+            global_stats.total_active_agents = global_stats.total_active_agents + 1;
+        };
         
         event::emit<AgentCreatedEvent>(AgentCreatedEvent { 
             id, 
@@ -294,7 +357,7 @@ module deployer_addr::AgentFactory {
     }
 
     // Execute agent strategy (entry; no return). Only owner can execute.
-    public entry fun execute_agent_strategy(account: &signer, agent_id: u64) acquires OwnerAgents {
+    public entry fun execute_agent_strategy(account: &signer, agent_id: u64) acquires OwnerAgents, GlobalAgentRegistry {
         let owner = signer::address_of(account);
         let store = borrow_global_mut<OwnerAgents>(owner);
         
@@ -308,6 +371,24 @@ module deployer_addr::AgentFactory {
         
         // Ownership guaranteed by storage location
         agent_ref.last_execution = 1; // Simple flag for testing, will use timestamp in production
+        
+        // Update global registry with same last_execution timestamp
+        let deployer_addr = @deployer_addr;
+        if (exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = borrow_global_mut<GlobalAgentRegistry>(deployer_addr);
+            // Find and update the corresponding global agent
+            let counter = 0;
+            while (counter < global_registry.agent_counter) {
+                if (table::contains(&global_registry.agents, counter)) {
+                    let global_agent_ref = table::borrow_mut(&mut global_registry.agents, counter);
+                    if (global_agent_ref.owner == owner && global_agent_ref.id == agent_id) {
+                        global_agent_ref.last_execution = agent_ref.last_execution;
+                        break
+                    };
+                };
+                counter = counter + 1;
+            };
+        };
     }
 
     // Update performance (entry; no return). Only owner can update their agent.
@@ -316,7 +397,7 @@ module deployer_addr::AgentFactory {
         agent_id: u64, 
         profit: u64, 
         success: bool
-    ) acquires OwnerAgents {
+    ) acquires OwnerAgents, GlobalAgentRegistry, GlobalStats {
         let owner = signer::address_of(account);
         let store = borrow_global_mut<OwnerAgents>(owner);
         
@@ -343,6 +424,31 @@ module deployer_addr::AgentFactory {
             agent_ref.performance.avg_return = (agent_ref.performance.total_profit + agent_ref.performance.total_loss) / total_trades;
         };
         
+        // Update global registry with same performance data
+        let deployer_addr = @deployer_addr;
+        if (exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = borrow_global_mut<GlobalAgentRegistry>(deployer_addr);
+            // Find and update the corresponding global agent
+            let counter = 0;
+            while (counter < global_registry.agent_counter) {
+                if (table::contains(&global_registry.agents, counter)) {
+                    let global_agent_ref = table::borrow_mut(&mut global_registry.agents, counter);
+                    if (global_agent_ref.owner == owner && global_agent_ref.id == agent_id) {
+                        // Update global agent performance to match local agent
+                        global_agent_ref.performance = agent_ref.performance;
+                        break
+                    };
+                };
+                counter = counter + 1;
+            };
+        };
+        
+        // Update global stats
+        if (exists<GlobalStats>(deployer_addr)) {
+            let global_stats = borrow_global_mut<GlobalStats>(deployer_addr);
+            global_stats.total_trades_executed = global_stats.total_trades_executed + 1;
+        };
+        
         event::emit<AgentPerformanceUpdatedEvent>(AgentPerformanceUpdatedEvent {
             id: agent_id,
             owner,
@@ -353,7 +459,7 @@ module deployer_addr::AgentFactory {
     }
 
     // Toggle agent active status
-    public entry fun toggle_agent_status(account: &signer, agent_id: u64) acquires OwnerAgents {
+    public entry fun toggle_agent_status(account: &signer, agent_id: u64) acquires OwnerAgents, GlobalAgentRegistry, GlobalStats {
         let owner = signer::address_of(account);
         let store = borrow_global_mut<OwnerAgents>(owner);
         
@@ -361,7 +467,38 @@ module deployer_addr::AgentFactory {
         assert!(table::contains(&store.agents, agent_id), E_AGENT_NOT_FOUND);
         
         let agent_ref = table::borrow_mut(&mut store.agents, agent_id);
+        let was_active = agent_ref.is_active;
         agent_ref.is_active = !agent_ref.is_active;
+        
+        // Update global registry with same status
+        let deployer_addr = @deployer_addr;
+        if (exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = borrow_global_mut<GlobalAgentRegistry>(deployer_addr);
+            // Find and update the corresponding global agent
+            let counter = 0;
+            while (counter < global_registry.agent_counter) {
+                if (table::contains(&global_registry.agents, counter)) {
+                    let global_agent_ref = table::borrow_mut(&mut global_registry.agents, counter);
+                    if (global_agent_ref.owner == owner && global_agent_ref.id == agent_id) {
+                        global_agent_ref.is_active = agent_ref.is_active;
+                        break
+                    };
+                };
+                counter = counter + 1;
+            };
+        };
+        
+        // Update global stats for active agents count
+        if (exists<GlobalStats>(deployer_addr)) {
+            let global_stats = borrow_global_mut<GlobalStats>(deployer_addr);
+            if (was_active && !agent_ref.is_active) {
+                // Agent was deactivated
+                global_stats.total_active_agents = global_stats.total_active_agents - 1;
+            } else if (!was_active && agent_ref.is_active) {
+                // Agent was activated
+                global_stats.total_active_agents = global_stats.total_active_agents + 1;
+            };
+        };
         
         event::emit<AgentStatusChangedEvent>(AgentStatusChangedEvent {
             id: agent_id,
@@ -372,7 +509,7 @@ module deployer_addr::AgentFactory {
     }
 
     // Emergency stop for agent
-    public entry fun emergency_stop_agent(account: &signer, agent_id: u64) acquires OwnerAgents {
+    public entry fun emergency_stop_agent(account: &signer, agent_id: u64) acquires OwnerAgents, GlobalAgentRegistry, GlobalStats {
         let owner = signer::address_of(account);
         let store = borrow_global_mut<OwnerAgents>(owner);
         
@@ -380,8 +517,34 @@ module deployer_addr::AgentFactory {
         assert!(table::contains(&store.agents, agent_id), E_AGENT_NOT_FOUND);
         
         let agent_ref = table::borrow_mut(&mut store.agents, agent_id);
+        let was_active = agent_ref.is_active;
         agent_ref.permissions.emergency_stop = true;
         agent_ref.is_active = false;
+        
+        // Update global registry with same status and permissions
+        let deployer_addr = @deployer_addr;
+        if (exists<GlobalAgentRegistry>(deployer_addr)) {
+            let global_registry = borrow_global_mut<GlobalAgentRegistry>(deployer_addr);
+            // Find and update the corresponding global agent
+            let counter = 0;
+            while (counter < global_registry.agent_counter) {
+                if (table::contains(&global_registry.agents, counter)) {
+                    let global_agent_ref = table::borrow_mut(&mut global_registry.agents, counter);
+                    if (global_agent_ref.owner == owner && global_agent_ref.id == agent_id) {
+                        global_agent_ref.permissions.emergency_stop = true;
+                        global_agent_ref.is_active = false;
+                        break
+                    };
+                };
+                counter = counter + 1;
+            };
+        };
+        
+        // Update global stats for active agents count if the agent was previously active
+        if (was_active && exists<GlobalStats>(deployer_addr)) {
+            let global_stats = borrow_global_mut<GlobalStats>(deployer_addr);
+            global_stats.total_active_agents = global_stats.total_active_agents - 1;
+        };
         
         event::emit<AgentStatusChangedEvent>(AgentStatusChangedEvent {
             id: agent_id,
@@ -422,10 +585,124 @@ module deployer_addr::AgentFactory {
     }
 
     #[view]
-    public fun get_all_agents(): vector<Agent> {
-        // Note: This would require a different storage pattern for global access
-        // For now, returning empty vector as this would need global storage
-        vector::empty<Agent>()
+    public fun get_all_agents(): vector<Agent> acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            return vector::empty<Agent>()
+        };
+        
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        let all_agents = vector::empty<Agent>();
+        
+        let counter = 0;
+        while (counter < global_registry.agent_counter) {
+            if (table::contains(&global_registry.agents, counter)) {
+                let agent_ref = table::borrow(&global_registry.agents, counter);
+                vector::push_back(&mut all_agents, *agent_ref);
+            };
+            counter = counter + 1;
+        };
+        all_agents
+    }
+
+    // Global view functions - similar to Coffee module pattern
+    #[view]
+    public fun get_global_agent_by_id(global_id: u64): Agent acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        assert!(exists<GlobalAgentRegistry>(deployer_addr), E_AGENT_NOT_FOUND);
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        assert!(table::contains(&global_registry.agents, global_id), E_AGENT_NOT_FOUND);
+        *table::borrow(&global_registry.agents, global_id)
+    }
+
+    #[view]
+    public fun get_global_agent_count(): u64 acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            return 0
+        };
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        global_registry.agent_counter
+    }
+
+    #[view]
+    public fun get_global_stats(): (u64, u64, u64, u64) acquires GlobalStats {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalStats>(deployer_addr)) {
+            return (0, 0, 0, 0)
+        };
+        let global_stats = borrow_global<GlobalStats>(deployer_addr);
+        (global_stats.total_agents_created, global_stats.total_active_agents, 
+         global_stats.total_value_locked, global_stats.total_trades_executed)
+    }
+
+    #[view]
+    public fun get_all_agents_by_owner(target_owner: address): vector<Agent> acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            return vector::empty<Agent>()
+        };
+        
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        let owner_agents = vector::empty<Agent>();
+        
+        let counter = 0;
+        while (counter < global_registry.agent_counter) {
+            if (table::contains(&global_registry.agents, counter)) {
+                let agent_ref = table::borrow(&global_registry.agents, counter);
+                if (agent_ref.owner == target_owner) {
+                    vector::push_back(&mut owner_agents, *agent_ref);
+                };
+            };
+            counter = counter + 1;
+        };
+        owner_agents
+    }
+
+    #[view]
+    public fun get_all_active_agents(): vector<Agent> acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            return vector::empty<Agent>()
+        };
+        
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        let active_agents = vector::empty<Agent>();
+        
+        let counter = 0;
+        while (counter < global_registry.agent_counter) {
+            if (table::contains(&global_registry.agents, counter)) {
+                let agent_ref = table::borrow(&global_registry.agents, counter);
+                if (agent_ref.is_active) {
+                    vector::push_back(&mut active_agents, *agent_ref);
+                };
+            };
+            counter = counter + 1;
+        };
+        active_agents
+    }
+
+    #[view]
+    public fun get_all_agents_by_risk_level(risk_level: u8): vector<Agent> acquires GlobalAgentRegistry {
+        let deployer_addr = @deployer_addr;
+        if (!exists<GlobalAgentRegistry>(deployer_addr)) {
+            return vector::empty<Agent>()
+        };
+        
+        let global_registry = borrow_global<GlobalAgentRegistry>(deployer_addr);
+        let matching_agents = vector::empty<Agent>();
+        
+        let counter = 0;
+        while (counter < global_registry.agent_counter) {
+            if (table::contains(&global_registry.agents, counter)) {
+                let agent_ref = table::borrow(&global_registry.agents, counter);
+                if (agent_ref.parameters.risk_level == risk_level) {
+                    vector::push_back(&mut matching_agents, *agent_ref);
+                };
+            };
+            counter = counter + 1;
+        };
+        matching_agents
     }
 
     #[view]

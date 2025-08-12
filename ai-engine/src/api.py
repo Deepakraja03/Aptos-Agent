@@ -17,6 +17,8 @@ from .strategy_execution import (
     PerformanceMetrics, TradeSignal
 )
 from .market_analysis import MarketAnalyzer, BinanceDataProvider
+from .ml_models import ModelManager, PredictionResult
+from .model_trainer import TrainingOrchestrator, TrainingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ app.add_middleware(
 # Global instances
 strategy_executor = StrategyExecutor()
 market_analyzer = MarketAnalyzer(BinanceDataProvider())
+training_orchestrator = TrainingOrchestrator()
 
 
 # Pydantic models for API
@@ -283,6 +286,131 @@ async def get_market_data(symbol: str, interval: str = "1h"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ML Model Endpoints
+class PredictionRequest(BaseModel):
+    """Request model for price prediction"""
+    symbol: str
+    timeframe: str = "1h"
+    prediction_horizon: int = 1
+
+
+class PredictionResponse(BaseModel):
+    """Response model for price prediction"""
+    symbol: str
+    timeframe: str
+    predicted_price: float
+    confidence: float
+    current_price: float
+    prediction_horizon: int
+    feature_importance: Dict[str, float]
+    timestamp: datetime
+
+
+class TrainingRequest(BaseModel):
+    """Request model for model training"""
+    symbols: List[str]
+    timeframes: List[str] = ["1h", "4h"]
+    lookback_days: int = 30
+    min_samples: int = 100
+    performance_threshold: float = 0.55
+
+
+@app.post("/ml/predict", response_model=PredictionResponse)
+async def predict_price(request: PredictionRequest):
+    """Get AI price prediction for a symbol"""
+    try:
+        # Get recent price data for prediction
+        price_data = await training_orchestrator.data_collector.collect_training_data(
+            request.symbol, request.timeframe, 7  # 7 days for prediction
+        )
+        
+        if len(price_data) < 20:
+            raise HTTPException(status_code=400, detail="Insufficient price data for prediction")
+        
+        # Get prediction from trained model
+        prediction = await training_orchestrator.get_prediction(
+            request.symbol, request.timeframe, price_data
+        )
+        
+        if prediction is None:
+            raise HTTPException(status_code=404, detail=f"No trained model found for {request.symbol} {request.timeframe}")
+        
+        # Get current price
+        current_price = price_data['close'].iloc[-1]
+        
+        return PredictionResponse(
+            symbol=request.symbol,
+            timeframe=request.timeframe,
+            predicted_price=prediction.predicted_price,
+            confidence=prediction.confidence,
+            current_price=current_price,
+            prediction_horizon=prediction.prediction_horizon,
+            feature_importance=prediction.feature_importance,
+            timestamp=prediction.timestamp
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error making prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ml/train")
+async def train_models(request: TrainingRequest, background_tasks: BackgroundTasks):
+    """Train ML models for specified symbols and timeframes"""
+    try:
+        # Create training configuration
+        config = TrainingConfig(
+            symbols=request.symbols,
+            timeframes=request.timeframes,
+            lookback_days=request.lookback_days,
+            min_samples=request.min_samples,
+            performance_threshold=request.performance_threshold
+        )
+        
+        # Start training in background
+        background_tasks.add_task(train_models_background, config)
+        
+        return {
+            "message": "Model training started",
+            "symbols": request.symbols,
+            "timeframes": request.timeframes,
+            "estimated_completion": "5-10 minutes"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting model training: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ml/models")
+async def list_trained_models():
+    """List all trained ML models"""
+    try:
+        models = training_orchestrator.model_manager.list_trained_models()
+        return {
+            "total_models": len(models),
+            "models": models
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ml/status")
+async def get_training_status():
+    """Get current training system status"""
+    try:
+        status = training_orchestrator.get_system_status()
+        return status
+        
+    except Exception as e:
+        logger.error(f"Error getting training status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -307,6 +435,22 @@ async def initialize_agent(agent_id: str, params: StrategyParameters):
         
     except Exception as e:
         logger.error(f"Error initializing agent {agent_id}: {e}")
+
+
+async def train_models_background(config: TrainingConfig):
+    """Train models in background"""
+    try:
+        logger.info(f"Starting background model training for {len(config.symbols)} symbols")
+        
+        jobs = await training_orchestrator.initialize_models(config)
+        
+        successful_jobs = [j for j in jobs if j.status == "completed"]
+        failed_jobs = [j for j in jobs if j.status == "failed"]
+        
+        logger.info(f"Background training completed: {len(successful_jobs)} successful, {len(failed_jobs)} failed")
+        
+    except Exception as e:
+        logger.error(f"Error in background training: {e}")
 
 
 # Startup and shutdown events

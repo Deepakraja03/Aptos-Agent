@@ -14,8 +14,56 @@ module deployer_addr::agent_factory_tests {
 
     // Test setup
     fun setup_test(): signer {
+        // Create deployer and initialize the module (owner-only)
+        let deployer = account::create_account_for_test(@deployer_addr);
+        agent_factory::initialize(&deployer);
+
+        // Create a separate owner account used in tests
         let owner = account::create_account_for_test(OWNER);
         owner
+    }
+
+    // Test successful initialization
+    #[test]
+    fun test_initialize_success() {
+        let deployer = account::create_account_for_test(@deployer_addr);
+        agent_factory::initialize(&deployer);
+        
+        // Verify that the deployer can now create agents
+        let allowed_protocols = vector::empty<address>();
+        vector::push_back(&mut allowed_protocols, PROTOCOL_1);
+        
+        create_test_agent(&deployer, 1, 5, true, false, true, 10000, allowed_protocols);
+        
+        // Verify agent was created successfully
+        assert!(agent_factory::agent_exists(@deployer_addr, 1), 0);
+        assert!(agent_factory::get_agent_count(@deployer_addr) == 1, 1);
+    }
+
+    // Ensure initialize is owner-only
+    #[test]
+    #[expected_failure(abort_code = agent_factory::E_RESOURCE_NOT_EXISTS)]
+    fun test_initialize_must_be_deployer() {
+        let owner = account::create_account_for_test(OWNER);
+        agent_factory::initialize(&owner);
+    }
+    
+    // Test that initialize can be called multiple times without failing
+    #[test]
+    fun test_initialize_idempotent() {
+        let deployer = account::create_account_for_test(@deployer_addr);
+        
+        // Call initialize multiple times - should not fail
+        agent_factory::initialize(&deployer);
+        agent_factory::initialize(&deployer);
+        agent_factory::initialize(&deployer);
+        
+        // Should still work normally
+        let allowed_protocols = vector::empty<address>();
+        vector::push_back(&mut allowed_protocols, PROTOCOL_1);
+        
+        create_test_agent(&deployer, 1, 5, true, false, true, 10000, allowed_protocols);
+        assert!(agent_factory::agent_exists(@deployer_addr, 1), 2);
     }
 
     // Helper function to create a test agent

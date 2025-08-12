@@ -24,6 +24,8 @@ The AptosAgents platform consists of a single core module: `AgentFactory`, which
 - **Performance Tracking**: Comprehensive metrics and analytics
 - **Permission System**: Granular access control and security
 - **Multi-Protocol Support**: Framework for cross-protocol agent strategies
+- **Global Agent Registry**: Cross-owner visibility and discovery of all agents
+- **Global Analytics**: Platform-wide statistics and performance metrics
 - **Real-time Monitoring**: Event-driven architecture for live updates
 
 ## 🏗️ Module Architecture
@@ -90,7 +92,41 @@ struct AgentPermissions has store, copy, drop {
 }
 ```
 
+#### 5. **OwnerAgents** - Per-owner storage
+```move
+struct OwnerAgents has key {
+    agents: table::Table<u64, Agent>,  // Owner's agents table
+    next_id: u64,                      // Next available agent ID
+}
+```
+
+#### 6. **GlobalAgentRegistry** - Cross-owner agent registry
+```move
+struct GlobalAgentRegistry has key {
+    agents: table::Table<u64, Agent>,  // All agents across owners
+    agent_counter: u64,                // Global agent counter
+}
+```
+
+#### 7. **GlobalStats** - Platform-wide statistics
+```move
+struct GlobalStats has key {
+    total_agents_created: u64,         // Total agents ever created
+    total_value_locked: u64,           // Total value under management
+    total_trades_executed: u64,        // Total trades across all agents
+    total_active_agents: u64,          // Current active agents count
+}
+```
+
 ## 🚀 Core Features
+
+### 0. **Module Initialization**
+
+#### Initialize Module
+```move
+public entry fun initialize(account: &signer)
+```
+*Sets up global resources at deployer address. Must be called once after deployment.*
 
 ### 1. **Agent Management Functions**
 
@@ -152,7 +188,15 @@ public entry fun update_agent_performance(
 
 #### Analytics
 - `get_agent_performance_summary(owner: address): (u64, u64, u64, u64)`
-- `get_all_agents(): vector<Agent>` (Global view - currently returns empty)
+
+#### Global View Functions (Cross-Owner Queries)
+- `get_all_agents(): vector<Agent>` - Get all agents across all owners
+- `get_global_agent_by_id(global_id: u64): Agent` - Get agent by global ID
+- `get_global_agent_count(): u64` - Get total number of agents globally
+- `get_global_stats(): (u64, u64, u64, u64)` - Get platform-wide statistics
+- `get_all_agents_by_owner(target_owner: address): vector<Agent>` - Get all agents for specific owner (global view)
+- `get_all_active_agents(): vector<Agent>` - Get all active agents globally
+- `get_all_agents_by_risk_level(risk_level: u8): vector<Agent>` - Filter all agents by risk level
 
 ### 3. **Action Management**
 
@@ -326,6 +370,7 @@ await agentFactory.updateAgentPerformance(
 #### Entry Functions (Write Operations)
 | Function | Description | Parameters |
 |----------|-------------|------------|
+| `initialize` | Initialize global resources | `account` |
 | `create_agent` | Create a new agent | 13 parameters (see above) |
 | `execute_agent_strategy` | Execute agent strategy | `account`, `agent_id` |
 | `update_agent_performance` | Update performance metrics | `account`, `agent_id`, `profit`, `success` |
@@ -350,7 +395,14 @@ await agentFactory.updateAgentPerformance(
 | `get_agents_by_value_managed` | Filter by value managed | `vector<Agent>` |
 | `get_emergency_stopped_agents` | Get emergency stopped agents | `vector<Agent>` |
 | `get_agent_performance_summary` | Get performance summary | `(u64, u64, u64, u64)` |
+| **Global View Functions** | | |
 | `get_all_agents` | Get all agents globally | `vector<Agent>` |
+| `get_global_agent_by_id` | Get agent by global ID | `Agent` |
+| `get_global_agent_count` | Get total agent count globally | `u64` |
+| `get_global_stats` | Get platform statistics | `(u64, u64, u64, u64)` |
+| `get_all_agents_by_owner` | Get all agents for specific owner (global view) | `vector<Agent>` |
+| `get_all_active_agents` | Get all active agents globally | `vector<Agent>` |
+| `get_all_agents_by_risk_level` | Filter all agents by risk level | `vector<Agent>` |
 
 ### Events
 
@@ -516,20 +568,29 @@ subdir = "aptos-framework"
 
 ## 🔮 Future Enhancements
 
+### Completed Features
+
+✅ **Global Agent Registry**: Cross-owner agent discovery and global visibility  
+✅ **Global Analytics**: Platform-wide statistics and performance metrics  
+✅ **Comprehensive View Functions**: Full suite of query and filter functions  
+✅ **Event-Driven Architecture**: Real-time monitoring and updates  
+
 ### Planned Features
 
-1. **Global Agent Registry**: Cross-owner agent discovery
-2. **Agent Marketplace**: Public agent sharing and monetization
-3. **Advanced Analytics**: More sophisticated performance metrics
-4. **Multi-signature Support**: Enhanced security for high-value agents
-5. **Cross-chain Integration**: Support for other blockchains
+1. **Agent Marketplace**: Public agent sharing and monetization
+2. **Advanced Analytics**: More sophisticated performance metrics
+3. **Multi-signature Support**: Enhanced security for high-value agents
+4. **Cross-chain Integration**: Support for other blockchains
+5. **Agent Templates**: Pre-built strategy templates for common use cases
+6. **Performance Benchmarking**: Agent performance comparison tools
 
 ### Roadmap
 
 - **Phase 1**: Core functionality ✅ (Complete)
-- **Phase 2**: Protocol integrations (In Progress)
-- **Phase 3**: Advanced features (Planned)
-- **Phase 4**: Marketplace features (Planned)
+- **Phase 2**: Global registry & analytics ✅ (Complete) 
+- **Phase 3**: Protocol integrations (In Progress)
+- **Phase 4**: Advanced features (Planned)
+- **Phase 5**: Marketplace features (Planned)
 
 ## 📞 Support
 
