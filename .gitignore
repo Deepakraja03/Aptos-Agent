@@ -29,3 +29,6 @@ frontend/coverage/
 # Misc
 .env
 .env.*
+.vscode
+
+backend/dist
